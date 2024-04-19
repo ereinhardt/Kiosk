@@ -1,1 +1,1 @@
-# Kiosk
+# Kiosk for macOS
