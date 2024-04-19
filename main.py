@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import ttk
 from pynput import keyboard, mouse
 import signal
+import time
 from AppKit import NSScreen
 
 def get_running_apps():
@@ -39,15 +40,23 @@ def disable_kiosk_mode():
     subprocess.run(["defaults", "write", "com.apple.dock", "autohide", "-bool", "false"])
     subprocess.run(["killall", "Dock"])
 
+def is_app_running(app_name):
+    return app_name in get_running_apps()
+
 def focus_app(app_name, stop_event):
     while not stop_event.is_set():
         try:
+            if not is_app_running(app_name):
+                print(f"{app_name} is not running. Attempting to relaunch...")
+                subprocess.run(["open", "-a", app_name])
+                time.sleep(2)  # Shortened wait time for app to start
+
             focus_script = f'''
             tell application "System Events"
                 tell process "{app_name}"
                     set frontmost to true
                     repeat while not frontmost
-                        delay 0.5
+                        delay 0.1  # Reduced delay to make the check quicker
                         set frontmost to true
                     end repeat
                 end tell
@@ -64,7 +73,7 @@ def focus_app(app_name, stop_event):
             subprocess.run(["osascript", "-e", focus_script])
         except Exception as e:
             print(f"Error focusing {app_name}: {str(e)}")
-        stop_event.wait(1)
+        stop_event.wait(1)  # Keeping this to avoid a tight loop
 
 def track_mouse(label, percent_label):
     screen = NSScreen.mainScreen()
@@ -92,7 +101,7 @@ def track_mouse(label, percent_label):
             print(f"Mouse Position: x={int(x)}, y={int(y)}")  # Print position to terminal
         except Exception as e:
             print(f"Error reading mouse position: {str(e)}")
-        root.after(100, update_position)  # Schedule next update
+        root.after(1, update_position)  # Schedule next update
 
     update_position()
 
