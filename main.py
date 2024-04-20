@@ -22,6 +22,14 @@ def get_screen_resolutions():
             resolutions.append(line.strip())
     return resolutions
 
+def enable_boundary():
+    global boundary_active
+    boundary_active = True
+
+def disable_boundary():
+    global boundary_active
+    boundary_active = False
+
 def get_scale_factor():
     screen = NSScreen.mainScreen()
     if screen:
@@ -29,15 +37,36 @@ def get_scale_factor():
     return 1  # Default to 1 if no screen is detected
 
 def enable_kiosk_mode():
+    # Hide the Dock automatically
     subprocess.run(["defaults", "write", "com.apple.dock", "autohide", "-bool", "true"])
+    # Disable hot corners
     subprocess.run(["defaults", "write", "com.apple.dock", "wvous-tl-corner", "-int", "0"])
     subprocess.run(["defaults", "write", "com.apple.dock", "wvous-tr-corner", "-int", "0"])
     subprocess.run(["defaults", "write", "com.apple.dock", "wvous-bl-corner", "-int", "0"])
     subprocess.run(["defaults", "write", "com.apple.dock", "wvous-br-corner", "-int", "0"])
+    # Disable swipe between pages and other multi-touch trackpad gestures
+    subprocess.run(["defaults", "write", "com.apple.AppleMultitouchTrackpad", "TrackpadThreeFingerHorizSwipeGesture", "-int", "0"])
+    subprocess.run(["defaults", "write", "com.apple.AppleMultitouchTrackpad", "TrackpadFourFingerHorizSwipeGesture", "-int", "0"])
+    # Disable Mission Control and App Expose gestures
+    subprocess.run(["defaults", "write", "com.apple.dock", "showMissionControlGestureEnabled", "-bool", "false"])
+    subprocess.run(["defaults", "write", "com.apple.dock", "showAppExposeGestureEnabled", "-bool", "false"])
+    # Disable moving spaces
+    subprocess.run(["defaults", "write", "com.apple.dock", "mru-spaces", "-bool", "false"])
+    # Restart the Dock to apply changes
     subprocess.run(["killall", "Dock"])
 
 def disable_kiosk_mode():
+    # Show the Dock
     subprocess.run(["defaults", "write", "com.apple.dock", "autohide", "-bool", "false"])
+    # Restore swipe gestures
+    subprocess.run(["defaults", "delete", "com.apple.AppleMultitouchTrackpad", "TrackpadThreeFingerHorizSwipeGesture"])
+    subprocess.run(["defaults", "delete", "com.apple.AppleMultitouchTrackpad", "TrackpadFourFingerHorizSwipeGesture"])
+    # Enable Mission Control and App Expose gestures
+    subprocess.run(["defaults", "write", "com.apple.dock", "showMissionControlGestureEnabled", "-bool", "true"])
+    subprocess.run(["defaults", "write", "com.apple.dock", "showAppExposeGestureEnabled", "-bool", "true"])
+    # Enable moving spaces
+    subprocess.run(["defaults", "write", "com.apple.dock", "mru-spaces", "-bool", "true"])
+    # Restart the Dock to apply changes
     subprocess.run(["killall", "Dock"])
 
 def is_app_running(app_name):
@@ -75,32 +104,33 @@ def focus_app(app_name, stop_event):
             print(f"Error focusing {app_name}: {str(e)}")
         stop_event.wait(1)  # Keeping this to avoid a tight loop
 
-def track_mouse(label, percent_label):
-    screen = NSScreen.mainScreen()
-    screen_frame = screen.frame()
-    screen_height = screen_frame.size.height
-    one_percent_height = screen_height * 0.05  # 5% of the screen height
-
-    scale_factor = get_scale_factor()  # Get the scale factor dynamically
+def track_mouse(root, labels):
+    screens = NSScreen.screens()  # Get all connected screens
+    scale_factors = [screen.backingScaleFactor() for screen in screens]
+    screen_frames = [screen.frame() for screen in screens]
+    boundaries = [screen_frame.size.height * 0.05 * scale for screen_frame, scale in zip(screen_frames, scale_factors)]
 
     def update_position():
-        try:
-            mouse_controller = mouse.Controller()
-            x, y = mouse_controller.position
-            x *= scale_factor
-            y *= scale_factor
+        if boundary_active:
+            try:
+                mouse_controller = mouse.Controller()
+                x, y = mouse_controller.position
 
-            # Boundary check and reset
-            boundary_y = one_percent_height * scale_factor
-            if y < boundary_y:
-                mouse_controller.position = (x / scale_factor, boundary_y / scale_factor)
-                y = boundary_y
+                for label, screen_frame, boundary, scale_factor in zip(labels, screen_frames, boundaries, scale_factors):
+                    if screen_frame.origin.x <= x * scale_factor <= screen_frame.origin.x + screen_frame.size.width * scale_factor:
+                        adjusted_x = x * scale_factor
+                        adjusted_y = y * scale_factor
 
-            label.config(text=f"Mouse Position: x={int(x)}, y={int(y)}")
-            percent_label.config(text=f"5% from top in pixels: {int(boundary_y)}px")
-            print(f"Mouse Position: x={int(x)}, y={int(y)}")  # Print position to terminal
-        except Exception as e:
-            print(f"Error reading mouse position: {str(e)}")
+                        if adjusted_y < boundary:
+                            adjusted_y = boundary
+                            new_y = adjusted_y / scale_factor
+                            mouse_controller.position = (x, new_y)
+
+                        label.config(text=f"Mouse Position: x={int(adjusted_x)}, y={int(adjusted_y)}; 5% boundary: {int(boundary)}px")
+                        print(f"Mouse Position: x={int(adjusted_x)}, y={int(adjusted_y)}; Monitor Boundary: {int(boundary)}px")  # Print to terminal
+
+            except Exception as e:
+                print(f"Error reading mouse position: {str(e)}")
         root.after(1, update_position)  # Schedule next update
 
     update_position()
@@ -144,36 +174,59 @@ def handle_exit_signal(signum, frame):
     disable_kiosk_mode()
     root.quit()
 
+def setup_gui(root):
+    screens = NSScreen.screens()
+    labels = []
+    for screen in screens:
+        label = tk.Label(root, text="")
+        label.pack(pady=20)
+        labels.append(label)
+    return labels
+
+
 # GUI Setup
 root = tk.Tk()
 root.title("Kiosk")
+
+boundary_active = False  # This flag controls the boundary enforcement
 
 # Display Resolutions
 resolutions = get_screen_resolutions()
 resolution_label = tk.Label(root, text="\n".join(resolutions))
 resolution_label.pack(pady=20)
 
-percent_label = tk.Label(root, text="5% from top in pixels: 0px")
-percent_label.pack(pady=10)
-
-mouse_position_label = tk.Label(root, text="Mouse Position: x=0, y=0")
-mouse_position_label.pack(pady=20)
-track_mouse(mouse_position_label, percent_label) # Start tracking mouse position
-
+labels = setup_gui(root)
+track_mouse(root, labels)
 
 app_list = tk.Listbox(root, height=10, width=50, exportselection=0)
 for app in get_running_apps():
     app_list.insert(tk.END, app)
 app_list.pack(pady=20)
 
-focus_button = ttk.Button(root, text="Focus Selected Application", command=start_focusing_app)
+focus_button = ttk.Button(root, text="Focus Selected Application", command=lambda: [enable_boundary(), start_focusing_app()])
 focus_button.pack(pady=10)
 
-quit_button = ttk.Button(root, text="Quit", command=stop_focusing_app)
+quit_button = ttk.Button(root, text="Quit", command=lambda: [disable_boundary(), stop_focusing_app()])
 quit_button.pack(pady=20)
 
 # Key Listener Setup
 current_keys = set()
+def on_press(key):
+    if key == keyboard.Key.cmd:
+        current_keys.add(key)
+    elif hasattr(key, 'char') and key.char == 'e':
+        current_keys.add(key.char)
+
+    if keyboard.Key.cmd in current_keys and 'e' in current_keys:
+        disable_boundary()
+        stop_focusing_app()
+
+def on_release(key):
+    if key == keyboard.Key.cmd:
+        current_keys.discard(key)
+    elif hasattr(key, 'char') and key.char == 'e':
+        current_keys.discard(key.char)
+
 listener = keyboard.Listener(on_press=on_press, on_release=on_release)
 listener.start()
 
