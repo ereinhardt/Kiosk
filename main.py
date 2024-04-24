@@ -147,9 +147,9 @@ def start_focusing_app():
         global focus_thread, stop_event
         stop_event = threading.Event()
         app_name = app_list.get(selected_index[0])
-
         enable_kiosk_mode()
-
+        # Enable full screen mode for the root window
+        root.overrideredirect(True)
         focus_thread = threading.Thread(target=focus_app, args=(app_name, stop_event))
         focus_thread.start()
 
@@ -158,6 +158,9 @@ def stop_focusing_app():
         stop_event.set()
         focus_thread.join()
         disable_kiosk_mode()
+    # Disable full screen mode for the root window
+    root.overrideredirect(False)
+
     print("Focus stopped. Exiting application and script.")
 
 def on_press(key):
@@ -180,6 +183,17 @@ def handle_exit_signal(signum, frame):
     disable_kiosk_mode()
     root.quit()
 
+def on_close():
+    disable_boundary()
+    if stop_event:
+        stop_event.set()
+        if focus_thread.is_alive():
+            focus_thread.join()
+    disable_kiosk_mode()
+    # Disable full screen mode for the root window when closing
+    root.overrideredirect(False)
+    root.destroy()
+
 def setup_gui(root):
     screens = NSScreen.screens()
     labels = []
@@ -193,6 +207,8 @@ def setup_gui(root):
 # GUI Setup
 root = tk.Tk()
 root.title("Kiosk")
+root.protocol("WM_DELETE_WINDOW", on_close)
+root.overrideredirect(False)
 
 boundary_active = False  # This flag controls the boundary enforcement
 
