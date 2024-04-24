@@ -108,7 +108,7 @@ def track_mouse(root, labels):
     screens = NSScreen.screens()  # Get all connected screens
     scale_factors = [screen.backingScaleFactor() for screen in screens]
     screen_frames = [screen.frame() for screen in screens]
-    boundaries = [screen_frame.size.height * 0.05 * scale for screen_frame, scale in zip(screen_frames, scale_factors)]
+    boundaries = [(screen_frame.size.height * 0.05 * scale, screen_frame.size.height * 0.95 * scale) for screen_frame, scale in zip(screen_frames, scale_factors)]
 
     def update_position():
         if boundary_active:
@@ -116,18 +116,24 @@ def track_mouse(root, labels):
                 mouse_controller = mouse.Controller()
                 x, y = mouse_controller.position
 
-                for label, screen_frame, boundary, scale_factor in zip(labels, screen_frames, boundaries, scale_factors):
+                for label, screen_frame, (top_boundary, bottom_boundary), scale_factor in zip(labels, screen_frames, boundaries, scale_factors):
                     if screen_frame.origin.x <= x * scale_factor <= screen_frame.origin.x + screen_frame.size.width * scale_factor:
                         adjusted_x = x * scale_factor
                         adjusted_y = y * scale_factor
 
-                        if adjusted_y < boundary:
-                            adjusted_y = boundary
+                        # Check and enforce the top boundary
+                        if adjusted_y < top_boundary:
+                            adjusted_y = top_boundary
+                            new_y = adjusted_y / scale_factor
+                            mouse_controller.position = (x, new_y)
+                        # Check and enforce the bottom boundary
+                        elif adjusted_y > bottom_boundary:
+                            adjusted_y = bottom_boundary
                             new_y = adjusted_y / scale_factor
                             mouse_controller.position = (x, new_y)
 
-                        label.config(text=f"Mouse Position: x={int(adjusted_x)}, y={int(adjusted_y)}; 5% boundary: {int(boundary)}px")
-                        print(f"Mouse Position: x={int(adjusted_x)}, y={int(adjusted_y)}; Monitor Boundary: {int(boundary)}px")  # Print to terminal
+                        label.config(text=f"Mouse Position: x={int(adjusted_x)}, y={int(adjusted_y)}; 5% boundaries: Top={int(top_boundary)}px, Bottom={int(bottom_boundary)}px")
+                        print(f"Mouse Position: x={int(adjusted_x)}, y={int(adjusted_y)}; Monitor Boundaries: Top={int(top_boundary)}px, Bottom={int(bottom_boundary)}px")  # Print to terminal
 
             except Exception as e:
                 print(f"Error reading mouse position: {str(e)}")
